@@ -3,16 +3,25 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#14181f">
+<meta name="theme-color" content="#0d1015">
 <title>에이전트 마을</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<main id="stage">
-  <canvas id="world"></canvas>
-  <div id="chip"><i id="dot"></i><span id="stat">연결 중</span></div>
-</main>
-<section id="log" aria-label="대화"></section>
+<main id="stage"><canvas id="world"></canvas></main>
+
+<aside id="hud">
+  <header>
+    <i id="dot"></i><span id="stat">연결 중</span>
+    <span class="grow"></span>
+    <button id="b-sound">소리</button>
+    <button id="b-alarm">알림</button>
+    <button id="b-fold">접기</button>
+  </header>
+  <div id="log" aria-label="대화"></div>
+</aside>
+
+<div id="toast" role="status"></div>
 <footer>Copyright &copy; 2026<span id="current-year"></span> SsamFlow. All rights reserved.</footer>
 
 <dialog id="detail">

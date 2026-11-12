@@ -46,6 +46,8 @@ type ActorState struct {
 	Role    string `json:"role,omitempty"`
 	Status  string `json:"status,omitempty"`
 	Quest   string `json:"quest,omitempty"`
+	QuestT  int64  `json:"questT,omitempty"` // 의뢰 시작 시각(ms)
+	Hits    int    `json:"hits,omitempty"`   // 의뢰 이후 도구 호출 수
 }
 
 const recentMax = 80
@@ -108,12 +110,16 @@ func (h *Hub) apply(e Event) {
 		h.remove(func(a *ActorState) bool { return a.Session == e.Session })
 	case "quest":
 		if a := h.actors[e.Session]; a != nil {
-			a.Quest = e.Text
+			a.Quest, a.QuestT, a.Hits = e.Text, e.T, 0
+		}
+	case "tool":
+		if a := h.actors[e.Session]; a != nil {
+			a.Hits++
 		}
 	case "victory":
 		h.wins++
 		if a := h.actors[e.Session]; a != nil {
-			a.Quest = ""
+			a.Quest, a.QuestT, a.Hits = "", 0, 0
 		}
 	case "status":
 		if a := h.actors[e.Actor]; a != nil {

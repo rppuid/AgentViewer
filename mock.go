@@ -12,12 +12,16 @@ var (
 		"로그인 버그 고쳐줘", "결제 모듈 리팩터링", "테스트가 왜 깨지는지 찾아줘", "다크 모드 추가",
 		"API 응답 속도 개선", "README 최신화", "배포 스크립트 점검", "검색 기능 구현",
 	}
-	mockRoles = []string{"Explore", "Plan", "code-review", "general-purpose"}
-	mockTools = []string{"Read", "Edit", "Bash", "Grep", "WebSearch", "Write"}
-	mockFiles = []string{"src/auth.ts", "api/server.go", "web/app.js", "README.md", "tests/login.test.ts", "npm test", "go build ./..."}
-	mockSays  = []string{
-		"원인을 찾았습니다. 세션 만료 처리가 빠져 있네요.", "관련 파일을 먼저 살펴보겠습니다.",
-		"테스트를 돌려 확인해 보겠습니다.", "수정이 끝났습니다. 검증 중입니다.", "구조를 파악하고 있습니다.",
+	mockRoles    = []string{"Explore", "Plan", "code-review", "general-purpose", "web-fetch", "debugger"}
+	mockTools    = []string{"Read", "Edit", "Bash", "Grep", "WebSearch", "Write"}
+	mockFiles    = []string{"src/auth.ts", "api/server.go", "web/app.js", "README.md", "tests/login.test.ts", "npm test", "go build ./..."}
+	mockSaysLead = []string{
+		"원인 찾았다. 세션 만료 처리가 빠져 있었네.", "관련 파일부터 훑어볼게.",
+		"테스트 돌려서 확인한다.", "거의 다 됐어. 검증만 남았다.", "구조는 대충 파악했어.",
+	}
+	mockSaysSub = []string{
+		"보고드립니다. 관련 파일 세 곳을 찾았습니다.", "확인 결과 문제없습니다.",
+		"의심되는 부분을 발견했습니다.", "조사를 마쳤습니다. 정리해서 올리겠습니다.", "추가로 살펴볼 곳이 있습니다.",
 	}
 )
 
@@ -79,14 +83,22 @@ func mockSession(ctx context.Context, hub *Hub, guild, id, name string, rng *ran
 			party = append(party, sub)
 		}
 
-		for steps := 6 + rng.Intn(10); steps > 0; steps-- {
+		steps := 6 + rng.Intn(10)
+		if rng.Float64() < 0.3 { // 가끔 긴 작업: 정예·보스로 자란다
+			steps = 20 + rng.Intn(25)
+		}
+		for ; steps > 0; steps-- {
 			if !wait(0.6, 2.2) {
 				return
 			}
 			actor := pick(party)
 			switch r := rng.Float64(); {
 			case r < 0.15:
-				ev("say", Event{Actor: actor, Text: pick(mockSays)})
+				if actor == id {
+					ev("say", Event{Text: pick(mockSaysLead)})
+				} else {
+					ev("say", Event{Actor: actor, Text: pick(mockSaysSub)})
+				}
 			case r < 0.21 && actor == id:
 				ev("status", Event{Status: "blocked"})
 				if !wait(2.5, 5) {
@@ -106,7 +118,7 @@ func mockSession(ctx context.Context, hub *Hub, guild, id, name string, rng *ran
 		for _, sub := range party[1:] {
 			ev("dismiss", Event{Actor: sub})
 		}
-		ev("say", Event{Text: "작업을 마쳤습니다."})
+		ev("say", Event{Text: "다 끝냈어. 정리해 뒀다."})
 		ev("victory", Event{})
 		ev("status", Event{Status: "idle"})
 	}
