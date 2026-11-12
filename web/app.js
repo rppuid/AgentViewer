@@ -1,5 +1,5 @@
 // 에이전트 마을 뷰어. 프레임워크·엔진 없이 Canvas 2D 한 장으로 그린다.
-import { bake, hero, WEAPONS, MONSTERS, monsterFor, TREE, DESK, drawOffice } from './art.js';
+import { bake, hero, WEAPONS, MONSTERS, monsterFor, TREE, drawOffice, drawDesk, oblique, SK, SY, DEPTH, WALL_H } from './art.js';
 
 const GUILDS = {
   claude: { name: 'Claude 길드', color: '#e0825c', dark: '#93492f', job: 'knight' },
@@ -81,19 +81,21 @@ const SFX = {
 
 // ---------- 배치 ----------
 
-const HOR = 34, WALL = 22, OH = 60, OY = 48;
+// BY: 사무실 바닥 뒤쪽 모서리의 화면 y, FRONT: 사무실 앞벽의 화면 y
+const HOR = 34, BY = HOR + WALL_H + 22, FRONT = BY + DEPTH * SY, LEAN = DEPTH * SK;
 let L, bg, view = { s: 1, ox: 0, oy: 0, dpr: 1 }, props = [], lights = [];
 
 function makeLayout(W, H, portrait, cover) {
   // 세계 크기는 화면에 맞춰 달라진다. cover 는 HUD가 덮는 영역(세계 좌표).
-  const ow = Math.max(64, Math.min(120, Math.floor(W / 3) - 12));
-  const l = { portrait, W, H, ow, cover, plazaY: OY + OH + 4, fire: { x: Math.round(W / 2), y: OY + OH + 22 }, cliffY: OY + OH + 36, guilds: {}, slots: [] };
+  const cell = W / 3, ow = Math.max(44, Math.min(116, Math.floor(cell - LEAN - 8)));
+  const l = { portrait, W, H, ow, cover, plazaY: FRONT + 6, fire: { x: Math.round(W / 2), y: FRONT + 24 }, cliffY: FRONT + 38, guilds: {}, slots: [] };
   l.fieldY = l.cliffY + 8;
   ORDER.forEach((id, i) => {
-    const ox = Math.round(W * (i + 0.5) / 3 - ow / 2), n = ow >= 100 ? 3 : 2;
+    const ox = Math.round(cell * i + (cell - ow - LEAN) / 2 + LEAN), n = ow >= 88 ? 3 : ow >= 58 ? 2 : 1;
+    const at = (u, v) => ({ x: Math.round(ox + u - v * SK), y: Math.round(BY + v * SY) }); // 방 안 좌표 → 화면
     l.guilds[id] = {
-      ox, cx: ox + ow / 2, door: { x: ox + ow / 2, y: OY + OH + 4 }, beacon: { x: ox + ow - 5, y: OY + OH + 6 },
-      desks: Array.from({ length: n }, (_, k) => ({ x: Math.round(ox + ow * (k + 1) / (n + 1)), y: OY + WALL + 16 })),
+      ox, at, cx: ox + ow / 2 - LEAN, door: at(ow / 2, DEPTH + 3), beacon: at(ow + 5, DEPTH + 6),
+      desks: Array.from({ length: n }, (_, k) => at(ow * (k + 1) / (n + 1), 24)),
     };
   });
   const cols = Math.max(2, Math.floor(W / 100));
@@ -126,14 +128,15 @@ function renderBg() {
   // 광장 돌바닥
   R('#cdb793', 0, L.plazaY, L.W, L.cliffY - L.plazaY - 2);
   for (let j = L.plazaY; j < L.cliffY - 4; j += 6) for (let i = ((j / 6) % 2) * 5 - 5; i < L.W; i += 10) {
-    R('#bfa880', i, j + 5, 10, 1); R('#bfa880', i + 9, j, 1, 6);
+    R('#bfa880', i, j + 5, 10, 1);
+    x.strokeStyle = '#bfa880'; x.lineWidth = 1; x.beginPath(); x.moveTo(i + 9.5, j); x.lineTo(i + 9.5 - 6 * SK / SY, j + 6); x.stroke();
     if (rnd() < 0.25) R('#d9c6a4', i + 2, j + 1, 5, 3);
   }
   R('#58a14e', 0, L.cliffY - 2, L.W, 2);
 
   // 절벽과 계단, 아랫마을 토벌장
   R('#6a4f3a', 0, L.cliffY, L.W, 8); R('#8a6a4c', 0, L.cliffY, L.W, 2); R('#4a3628', 0, L.cliffY + 6, L.W, 2);
-  for (let i = 0; i < L.W; i += 7) R('#5a4230', i + ((rnd() * 3) | 0), L.cliffY + 2, 1, 4);
+  for (let i = 0; i < L.W + 8; i += 7) { x.strokeStyle = '#5a4230'; x.lineWidth = 1; x.beginPath(); x.moveTo(i + rnd() * 3, L.cliffY + 2); x.lineTo(i - 3, L.cliffY + 6); x.stroke(); }
   for (let k = 0; k < 4; k++) R(k % 2 ? '#b8a27e' : '#cdb793', L.fire.x - 12, L.cliffY + k * 2, 24, 2);
   R('#3d7646', 0, L.fieldY, L.W, L.H - L.fieldY);
   R('rgba(0,0,0,.18)', 0, L.fieldY, L.W, 3);
@@ -148,17 +151,17 @@ function renderBg() {
   lights = [];
   for (const id of ORDER) {
     const g = L.guilds[id];
-    for (const [lx, ly, r, col] of drawOffice(x, id, GUILDS[id], g.ox, OY, L.ow, OH, WALL)) lights.push({ x: lx, y: ly, r, col });
-    R('#6a6f7a', g.beacon.x - 2, g.beacon.y - 9, 5, 9); R('#8d93a0', g.beacon.x - 3, g.beacon.y - 11, 7, 3);
+    for (const [lx, ly, r, col] of drawOffice(x, id, GUILDS[id], g.ox, BY, L.ow)) lights.push({ x: lx, y: ly, r, col });
+    const ob = oblique(x, g.beacon.x, g.beacon.y); ob.box(-2.5, -3, 5, 5, 8, '#7a808c'); ob.box(-3.5, -4, 7, 7, 3, '#9aa0ad', 8);
   }
-  R('#6a6f7a', L.fire.x - 5, L.fire.y - 1, 10, 3); R('#8d93a0', L.fire.x - 4, L.fire.y - 2, 8, 1);
+  oblique(x, L.fire.x, L.fire.y).box(-6, -5, 12, 9, 3, '#8d93a0');
   return c;
 }
 
 function buildProps() {
   props = [];
   for (const [x, y] of L.trees) props.push({ y, draw: () => ctx.drawImage(TREE, x - 8, y - 16), shadow: [x, y, 9] });
-  for (const id of ORDER) for (const d of L.guilds[id].desks) props.push({ y: d.y + 2.5, draw: () => ctx.drawImage(DESK, d.x - 8, d.y - 9) });
+  for (const id of ORDER) for (const d of L.guilds[id].desks) props.push({ y: d.y + 10, draw: () => drawDesk(ctx, d.x, d.y) });
 }
 
 function resize() {
@@ -168,7 +171,7 @@ function resize() {
   cv.width = Math.round(r.width * dpr); cv.height = Math.round(r.height * dpr);
   const portrait = r.height > r.width * 1.05;
   // 화면을 가득 채운다: 가로 화면은 세로 256칸, 세로 화면은 가로 240칸을 기준으로 배율을 정한다
-  let s = portrait ? cv.width / 240 : cv.height / 256;
+  let s = portrait ? cv.width / 250 : cv.height / 272;
   if (!portrait && cv.width / s > 640) s = cv.width / 640;
   s = s >= 2 ? Math.round(s * 4) / 4 : s;
   const W = Math.ceil(cv.width / s), H = Math.ceil(cv.height / s);
@@ -225,12 +228,16 @@ function targetOf(a) {
   if (m && !m.dying) {
     if (a.status === 'blocked' && a.leader) return [a.x, a.y];
     const party = partyOf(a.session), k = party.indexOf(a);
-    const ang = Math.PI + (k - (party.length - 1) / 2) * 0.95, r = 28 + m.stage * 8;
+    // 세 명씩 안쪽·바깥쪽 줄로 선다
+    const ring = Math.floor(k / 3), inRing = Math.min(3, party.length - ring * 3);
+    const ang = Math.PI + ((k % 3) - (inRing - 1) / 2) * 0.95, r = 28 + m.stage * 8 + ring * 18;
     return [m.x + Math.cos(ang) * r, m.y + Math.sin(ang) * 21 + 2];
   }
   if (a.mode === 'rest') return [L.rest[a.spot % 8].x, L.rest[a.spot % 8].y];
   const d = g.desks[a.homeIdx];
-  return d ? [d.x, d.y] : [g.ox + 12 + (a.homeIdx % 6) * 9, OY + WALL + 30];
+  if (d) return [d.x, d.y];
+  const p = g.at(10 + (a.homeIdx % 5) * 11, 46);
+  return [p.x, p.y];
 }
 
 function addActor(s) {
@@ -659,7 +666,7 @@ function draw() {
     const b = L.guilds[id].beacon;
     if (beaconLit(id)) { flame(b.x + 0.5, b.y - 11, 7); if (Math.floor(now * 2) % 2) text('!', b.x + 0.5, b.y - 26, '#ffd84a', 8); }
     const lv = Math.min(5, levelOf(`g:${id}`) - 1); // 길드 레벨만큼 늘어나는 금빛 깃발
-    for (let i = 0; i < lv; i++) { ctx.fillStyle = '#ffd84a'; ctx.fillRect(L.guilds[id].ox + 3 + i * 5, OY + OH - 5, 3, 4); ctx.fillStyle = '#b8862a'; ctx.fillRect(L.guilds[id].ox + 3 + i * 5, OY + OH - 1, 1, 2); }
+    for (let i = 0; i < lv; i++) { const p = L.guilds[id].at(4 + i * 6, DEPTH + 1); ctx.fillStyle = '#b8862a'; ctx.fillRect(p.x, p.y - 12, 1, 8); ctx.fillStyle = '#ffd84a'; ctx.fillRect(p.x + 1, p.y - 12, 4, 3); }
   }
 
   // 연출
@@ -697,7 +704,7 @@ function draw() {
   // 글자는 색조 위에 그린다
   for (const id of ORDER) {
     const gd = L.guilds[id];
-    text(`${GUILDS[id].name} Lv.${levelOf(`g:${id}`)}`, gd.cx, OY + OH + 11, '#fff', L.portrait ? 4 : 4.6);
+    text(`${GUILDS[id].name} Lv.${levelOf(`g:${id}`)}`, gd.door.x, FRONT + 15, '#fff', L.portrait ? 4 : 4.6);
   }
   for (const m of monsters.values()) {
     if (m.dying) continue;

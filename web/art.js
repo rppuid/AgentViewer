@@ -174,65 +174,120 @@ export const TREE = bake([
   '....ttt', '......b', '......b', '......b', '.....bb',
 ], { t: '#3f9a4a', T: '#2f7a3c', b: '#6a4a30' }, { mirror: true });
 
-export const DESK = bake([
-  '....mmmmmm....', '....mMMMMm....', '....mMMMMm....', '....mmmmmm....', '......kk......',
-  'dddddddddddddd', 'dddddddddddddd', 'DDDDDDDDDDDDDD', 'D............D', 'D............D',
-], { m: '#3a3f4c', M: '#2a2e38', k: '#3a3f4c', d: '#b07a48', D: '#7a5230' });
+// ---------- 비스듬한 측면 시점 ----------
+// 가로는 그대로 두고 깊이(v)만 왼쪽 아래로 기울인다. 그래서 왼쪽 옆벽과 가구의 오른쪽 옆면이 보인다.
 
-// 길드 사무실. 지붕을 들어낸 단면으로, 뒷벽 모양과 바닥이 길드마다 다르다.
-// 반환값: 밤에 불이 켜질 창문 위치 목록.
-export function drawOffice(x, kind, G, ox, oy, w, h, wallH) {
-  const lights = [], fy = oy + wallH, cx = ox + w / 2;
-  const R = (c, a, b, ww, hh) => { x.fillStyle = c; x.fillRect(Math.round(a), Math.round(b), Math.round(ww), Math.round(hh)); };
-  R('rgba(0,0,0,.22)', ox + 3, oy + h, w, 4);
+export const SK = 0.42, SY = 0.72, DEPTH = 64, WALL_H = 30;
+const shade = (c, k) => '#' + hex(c).map((v) => Math.max(0, Math.min(255, Math.round(v * k))).toString(16).padStart(2, '0')).join('');
 
-  if (kind === 'claude') { // 목조 길드관: 박공 지붕 벽, 벽난로, 책장
-    for (let i = 0; i < w; i += 8) R(i % 16 ? '#b98654' : '#c4925e', ox + i, fy, 8, h - wallH);
-    for (let j = fy + 7; j < oy + h; j += 8) R('rgba(0,0,0,.08)', ox, j, w, 1);
-    R('#e8d3a8', ox, oy, w, wallH);
-    R('#8a6a50', ox + w - 14, oy - 20, 7, 20); R('#5a4636', ox + w - 15, oy - 21, 9, 2);
-    for (let i = 0; i <= 12; i++) R('#e8d3a8', cx - i * (w / 26), oy - 12 + i, i * (w / 13), 1);
-    for (let i = 0; i <= 13; i++) R(G.color, cx - i * (w / 26) - 2, oy - 14 + i, 4, 2), R(G.color, cx + i * (w / 26) - 2, oy - 14 + i, 4, 2);
-    R(G.dark, ox - 2, oy - 1, w + 4, 2);
-    for (const bx of [ox, cx - 1, ox + w - 2]) R('#7a5230', bx, oy, 2, wallH);
-    R('#5a4636', ox + 6, oy + 6, 12, wallH - 6); R('#2a2018', ox + 8, oy + 10, 8, wallH - 10); R('#ff9a3c', ox + 10, oy + wallH - 5, 4, 4);
-    lights.push([ox + 12, oy + wallH - 3, 16, '#ff9a3c']);
-    R('#7a5230', ox + w - 22, oy + 5, 16, wallH - 5);
-    ['#d8483c', '#46c796', '#6b97ff', '#ffd84a'].forEach((c, i) => { R(c, ox + w - 20 + i * 3, oy + 7, 2, 5); R(c, ox + w - 19 + i * 3, oy + 14, 2, 5); });
-    R('#8fdcff', cx - 5, oy - 7, 10, 7); R('#7a5230', cx - 1, oy - 7, 1, 7);
-    lights.push([cx, oy - 3, 12, '#ffe9a8']);
-  } else if (kind === 'codex') { // 석조 탑: 톱니 성벽, 모서리 망루
-    for (let j = 0; j < h - wallH; j += 8) for (let i = 0; i < w; i += 8) R((i + j) % 16 ? '#8e97a6' : '#9aa3b2', ox + i, fy + j, 8, 8);
-    R('#b4bcc9', ox, oy, w, wallH);
-    for (let j = oy + 4; j < fy; j += 5) for (let i = (j % 10 ? 0 : 5); i < w; i += 10) R('#9aa3b2', ox + i, j, 6, 1);
-    for (let i = 0; i < w; i += 8) R('#b4bcc9', ox + i, oy - 5, 5, 5);
-    for (const tx of [ox - 4, ox + w - 8]) {
-      R('#a3acba', tx, oy - 16, 12, wallH + 18); R('#8e97a6', tx + 9, oy - 16, 3, wallH + 18);
-      for (let i = 0; i < 12; i += 5) R('#a3acba', tx + i, oy - 20, 3, 4);
-      R(G.color, tx + 2, oy - 2, 8, 12); R(G.dark, tx + 2, oy + 8, 8, 2);
-      R('#2a2e38', tx + 4, oy - 12, 4, 6); lights.push([tx + 6, oy - 9, 9, '#ffe9a8']);
+// (ox, by) 는 방 바닥의 뒤쪽 왼쪽 모서리. u=가로, v=깊이, z=높이.
+export function oblique(x, ox, by) {
+  const T = (u, v, z = 0) => [ox + u - v * SK, by + v * SY - z];
+  const quad = (pts, col) => {
+    x.fillStyle = col; x.beginPath();
+    pts.forEach((p, i) => { const [a, b] = T(...p); i ? x.lineTo(a, b) : x.moveTo(a, b); });
+    x.closePath(); x.fill();
+  };
+  const line = (p, q, col, w = 1) => { x.strokeStyle = col; x.lineWidth = w; x.beginPath(); x.moveTo(...T(...p)); x.lineTo(...T(...q)); x.stroke(); };
+  // 윗면·앞면·오른쪽 옆면이 보이는 상자
+  const box = (u, v, w, d, h, col, z = 0) => {
+    quad([[u + w, v, z], [u + w, v + d, z], [u + w, v + d, z + h], [u + w, v, z + h]], shade(col, 0.68));
+    quad([[u, v + d, z], [u + w, v + d, z], [u + w, v + d, z + h], [u, v + d, z + h]], shade(col, 0.86));
+    quad([[u, v, z + h], [u + w, v, z + h], [u + w, v + d, z + h], [u, v + d, z + h]], shade(col, 1.1));
+  };
+  // 뒷벽(정면을 보는 면) 위의 사각형
+  const back = (u, z, w, h, col) => quad([[u, 0, z], [u + w, 0, z], [u + w, 0, z + h], [u, 0, z + h]], col);
+  // 왼쪽 옆벽 위의 사각형
+  const side = (v, z, d, h, col) => quad([[0, v, z], [0, v + d, z], [0, v + d, z + h], [0, v, z + h]], col);
+  return { T, quad, line, box, back, side };
+}
+
+// 책상과 모니터. 앉은 길드장의 다리를 가리도록 캐릭터보다 나중에 그린다.
+export function drawDesk(x, sx, sy) {
+  const o = oblique(x, sx, sy);
+  o.box(-10, 6, 20, 8, 8, '#b07a48');
+  o.box(3, 8, 7, 2, 6, '#3a3f4c', 8);   // 모니터는 얼굴을 가리지 않게 한쪽으로
+  o.box(-7, 9, 6, 3, 1, '#e9ecf2', 8);  // 자판
+}
+
+// 길드 사무실. 지붕을 들어낸 방으로, 뒷벽 모양·바닥·가구가 길드마다 다르다.
+// 반환값: 밤에 불이 켜질 곳 [x, y, 반경, 색] 목록.
+export function drawOffice(x, kind, G, ox, by, w) {
+  const o = oblique(x, ox, by), { T, quad, line, box, back, side } = o;
+  const D = DEPTH, H = WALL_H, lights = [];
+  const light = (u, v, z, r, col) => lights.push([...T(u, v, z), r, col]);
+  const floor = (a, b, cell) => {
+    quad([[0, 0], [w, 0], [w, D], [0, D]], a);
+    if (!cell) return;
+    for (let v = 0, j = 0; v < D; v += cell, j++) for (let u = (j % 2) * cell; u < w; u += cell * 2) {
+      const u1 = Math.min(w, u + cell), v1 = Math.min(D, v + cell);
+      quad([[u, v], [u1, v], [u1, v1], [u, v1]], b);
     }
-    R('#2a2e38', cx - 8, oy + 4, 16, wallH - 6); R(G.color, cx - 6, oy + 6, 12, wallH - 11);
-    lights.push([cx, oy + wallH / 2, 14, G.color]);
-    R(G.dark, ox - 4, fy - 1, w + 8, 1);
-  } else { // 부유 연구소: 유리 돔 벽, 안테나, 떠 있는 고리
-    for (let j = 0; j < h - wallH; j += 10) for (let i = 0; i < w; i += 10) R((i + j) % 20 ? '#d5dceb' : '#e3e9f5', ox + i, fy + j, 10, 10);
-    for (let i = 0; i < w; i += 10) R('rgba(60,90,160,.14)', ox + i, fy, 1, h - wallH);
-    R('#e3e9f5', ox, oy + 6, w, wallH - 6);
-    const rx = w / 2, ry = 20;
-    for (let i = 0; i <= ry; i++) { const half = rx * Math.sqrt(1 - ((ry - i) / ry) ** 2); R(i < 3 ? '#e3e9f5' : '#9cc4ff', cx - half, oy + 6 - ry + i, half * 2, 1); }
-    for (let i = 3; i <= ry; i += 6) { const half = rx * Math.sqrt(1 - ((ry - i) / ry) ** 2); R('#e3e9f5', cx - half, oy + 6 - ry + i, half * 2, 1); }
-    for (const k of [-0.55, 0, 0.55]) R('#e3e9f5', cx + k * rx, oy + 6 - ry, 1, ry);
-    lights.push([cx, oy - 4, 22, '#9cc4ff']);
-    R('#8792a8', cx - 1, oy - 26, 1, 12); R(G.color, cx - 2, oy - 28, 3, 3);
-    R(G.dark, ox, oy + 6, w, 1);
-    R('#3a4664', ox + 6, oy + 10, 14, wallH - 12); R('#7fe6ff', ox + 8, oy + 12, 10, 3); R('#46c796', ox + 8, oy + 16, 6, 2);
-    lights.push([ox + 13, oy + 14, 10, '#7fe6ff']);
-    R('#3a4664', ox + w - 20, oy + 10, 14, wallH - 12); R('#ffb347', ox + w - 18, oy + 12, 4, 4); R('#7fe6ff', ox + w - 12, oy + 12, 4, 4);
+  };
+  // 바닥에 드리운 벽 그림자
+  x.fillStyle = 'rgba(0,0,0,.2)'; x.beginPath();
+  [[w, 0], [w + 5, 3], [w + 5, D + 5], [-2, D + 5], [-2, D]].forEach((p, i) => { const [a, b] = T(...p); i ? x.lineTo(a, b) : x.moveTo(a, b); });
+  x.fill();
+
+  if (kind === 'claude') { // 목조 길드관
+    floor('#c4925e');
+    for (let u = 9; u < w; u += 9) line([u, 0], [u, D], '#a87848', 0.6);
+    for (let v = 13; v < D; v += 13) line([0, v], [w, v], 'rgba(0,0,0,.08)', 0.6);
+    back(0, 0, w, H, '#e8d3a8'); side(0, 0, D, H, '#d2bc90');
+    quad([[0, 0, H], [w, 0, H], [w / 2, 0, H + 13]], '#e8d3a8');                       // 박공
+    line([0, 0, H], [w / 2, 0, H + 13], G.color, 2.5); line([w, 0, H], [w / 2, 0, H + 13], G.color, 2.5);
+    back(w - 17, H + 2, 7, 15, '#8a6a50'); back(w - 18, H + 16, 9, 2, '#5a4636');       // 굴뚝
+    for (const u of [1, w / 2, w - 1]) line([u, 0, 0], [u, 0, H], '#7a5230', 1.6);
+    line([0, 0, H], [w, 0, H], '#7a5230', 1.6); line([0, 0, 0], [0, D, 0], '#b8a070', 1);
+    back(w / 2 - 6, H + 2, 12, 7, '#8fdcff'); line([w / 2, 0, H + 2], [w / 2, 0, H + 9], '#7a5230', 0.8);
+    side(20, 12, 20, 12, '#8fdcff'); line([0, 30, 12], [0, 30, 24], '#7a5230', 0.8);
+    box(5, 1, 16, 6, 19, '#5a4636'); quad([[8, 7.1, 2], [18, 7.1, 2], [18, 7.1, 13], [8, 7.1, 13]], '#2a2018'); quad([[10, 7.2, 2], [16, 7.2, 2], [16, 7.2, 8], [10, 7.2, 8]], '#ff9a3c');
+    light(13, 8, 6, 16, '#ff9a3c'); light(w / 2, 0, H + 5, 12, '#ffe9a8'); light(-2, 30, 18, 14, '#ffe9a8');
+    box(w - 24, 1, 19, 6, 25, '#7a5230');
+    ['#d8483c', '#46c796', '#6b97ff', '#ffd84a'].forEach((c, i) => { quad([[w - 22 + i * 4, 7.1, 14], [w - 19 + i * 4, 7.1, 14], [w - 19 + i * 4, 7.1, 22], [w - 22 + i * 4, 7.1, 22]], c); quad([[w - 21 + i * 4, 7.1, 3], [w - 18 + i * 4, 7.1, 3], [w - 18 + i * 4, 7.1, 11], [w - 21 + i * 4, 7.1, 11]], c); });
+    quad([[w / 2 - 14, 30], [w / 2 + 14, 30], [w / 2 + 14, 50], [w / 2 - 14, 50]], G.dark); quad([[w / 2 - 12, 32], [w / 2 + 12, 32], [w / 2 + 12, 48], [w / 2 - 12, 48]], G.color); // 양탄자
+  } else if (kind === 'codex') { // 석조 성채
+    floor('#8e97a6', '#9ba4b3', 11);
+    back(0, 0, w, H, '#b4bcc9'); side(0, 0, D, H, '#9aa3b2');
+    for (let z = 5; z < H; z += 6) for (let u = (z % 12 ? 0 : 6); u < w - 4; u += 12) back(u + 1, z, 7, 1, '#9aa3b2');
+    for (let v = 6; v < D; v += 14) for (let z = 6; z < H; z += 10) side(v, z, 7, 1, '#8690a0');
+    for (let u = 0; u < w; u += 9) back(u, H, 5, 5, '#b4bcc9');                          // 톱니 성벽
+    for (let v = 2; v < D; v += 12) side(v, H, 6, 5, '#9aa3b2');
+    for (const u of [-5, w - 7]) {                                                      // 망루
+      box(u, -6, 12, 9, H + 16, '#a8b1bf');
+      for (const du of [0, 5, 10]) box(u + du, -6, 2, 9, 4, '#a8b1bf', H + 16);
+      quad([[u + 3, 3.1, H - 2], [u + 9, 3.1, H - 2], [u + 9, 3.1, H + 9], [u + 3, 3.1, H + 9]], '#2a2e38');
+      quad([[u + 2, 3.1, 4], [u + 10, 3.1, 4], [u + 10, 3.1, 20], [u + 2, 3.1, 20]], G.color);
+      quad([[u + 2, 3.1, 4], [u + 6, 3.1, 0], [u + 10, 3.1, 4]], G.color);
+      light(u + 6, 3, H + 4, 9, '#ffe9a8');
+    }
+    back(w / 2 - 10, 5, 20, H - 8, '#2a2e38'); back(w / 2 - 8, 7, 16, H - 12, G.color); back(w / 2 - 5, 12, 10, 2, '#ffffff');
+    light(w / 2, 0, H / 2, 16, G.color);
+    side(24, 10, 14, 14, '#2a2e38'); side(26, 12, 10, 10, '#8fdcff'); light(-2, 31, 17, 12, '#ffe9a8');
+    box(w / 2 - 4, 40, 8, 6, 6, '#6a7280'); box(w / 2 - 2, 41, 4, 4, 7, G.color, 6);    // 수정 받침대
+    light(w / 2, 43, 10, 12, G.color);
+  } else { // 유리 돔 연구소
+    floor('#d5dceb', '#e6ebf6', 10);
+    for (let u = 10; u < w; u += 20) line([u, 0], [u, D], 'rgba(60,90,160,.18)', 0.6);
+    back(0, 0, w, 12, '#e3e9f5'); side(0, 0, D, 12, '#cfd7e8');
+    const rx = w / 2, ry = 34;                                                          // 뒷벽의 돔
+    x.fillStyle = '#9cc4ff'; x.beginPath();
+    for (let i = 0; i <= 24; i++) { const a = Math.PI * i / 24, [px, py] = T(rx - Math.cos(a) * rx, 0, 12 + Math.sin(a) * ry); i ? x.lineTo(px, py) : x.moveTo(px, py); }
+    x.fill();
+    for (const k of [0.34, 0.67, 1]) { x.strokeStyle = '#e3e9f5'; x.lineWidth = 1; x.beginPath(); for (let i = 0; i <= 24; i++) { const a = Math.PI * i / 24, [px, py] = T(rx - Math.cos(a) * rx * k, 0, 12 + Math.sin(a) * ry); i ? x.lineTo(px, py) : x.moveTo(px, py); } x.stroke(); }
+    for (const z of [22, 33]) { const half = rx * Math.sqrt(1 - ((z - 12) / ry) ** 2); line([rx - half, 0, z], [rx + half, 0, z], '#e3e9f5', 1); }
+    quad([[0, 0, 12], [0, D, 12], [0, D, 30], [0, 0, 46]], '#b4d2ff');                   // 옆 유리벽
+    for (const v of [16, 32, 48]) line([0, v, 12], [0, v, 46 - v * 0.25], '#e3e9f5', 1);
+    line([0, 0, 12], [w, 0, 12], G.dark, 1.2); line([0, 0, 12], [0, D, 12], G.dark, 1.2);
+    line([rx, 0, 12 + ry], [rx, 0, 12 + ry + 11], '#8792a8', 1); back(rx - 1.5, 12 + ry + 10, 3, 3, G.color);
+    light(rx, 0, 30, 24, '#9cc4ff'); light(-3, 30, 26, 14, '#9cc4ff');
+    box(5, 1, 18, 6, 15, '#3a4664'); quad([[7, 7.1, 8], [21, 7.1, 8], [21, 7.1, 13], [7, 7.1, 13]], '#7fe6ff'); quad([[7, 7.1, 3], [15, 7.1, 3], [15, 7.1, 6], [7, 7.1, 6]], '#46c796');
+    box(w - 24, 1, 18, 6, 15, '#3a4664'); quad([[w - 22, 7.1, 8], [w - 16, 7.1, 8], [w - 16, 7.1, 13], [w - 22, 7.1, 13]], '#ffb347'); quad([[w - 14, 7.1, 8], [w - 8, 7.1, 8], [w - 8, 7.1, 13], [w - 14, 7.1, 13]], '#7fe6ff');
+    light(14, 7, 10, 10, '#7fe6ff');
+    box(rx - 5, 40, 10, 7, 3, '#8792a8'); light(rx, 43, 12, 12, G.color);               // 부유 장치 받침
   }
-  // 옆벽과 낮은 앞벽(가운데는 문)
-  R(G.dark, ox - 2, fy, 2, h - wallH + 2); R(G.dark, ox + w, fy, 2, h - wallH + 2);
-  R(G.dark, ox - 2, oy + h, w / 2 - 6, 3); R(G.dark, cx + 8, oy + h, w / 2 - 6, 3);
-  R('rgba(255,255,255,.18)', ox - 2, oy + h, w / 2 - 6, 1); R('rgba(255,255,255,.18)', cx + 8, oy + h, w / 2 - 6, 1);
+  // 낮은 앞벽(가운데는 문)과 오른쪽 벽
+  box(w, 0, 2.5, D + 2.5, 5, G.dark);
+  box(0, D, w / 2 - 10, 2.5, 5, G.dark); box(w / 2 + 10, D, w / 2 - 10, 2.5, 5, G.dark);
   return lights;
 }
