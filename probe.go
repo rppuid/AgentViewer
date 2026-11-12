@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -39,12 +40,13 @@ func runProbe() {
 // ---- herdr 소켓 ----
 
 func probeHerdr(sock string) {
-	fmt.Printf("\n## herdr socket: %s\n", sock)
+	fmt.Println("\n## herdr socket")
 	var firstPane string
 	for _, m := range []string{"ping", "agent.list", "pane.list", "session.snapshot"} {
 		res, err := herdrCall(sock, m)
 		if err != nil {
-			fmt.Printf("%s: 실패: %v\n", m, err)
+			home, _ := os.UserHomeDir()
+			fmt.Printf("%s: 실패: %s\n", m, strings.ReplaceAll(err.Error(), home, "~"))
 			if m == "ping" {
 				return
 			}
@@ -53,13 +55,13 @@ func probeHerdr(sock string) {
 		if firstPane == "" {
 			firstPane = findString(res, "pane_id")
 		}
-		fmt.Printf("%s:\n%s\n", m, shape(res, 3000))
+		fmt.Printf("%s:\n%s\n", m, shape(res, 6000, false))
 	}
 
 	types := []string{"pane.agent_status_changed", "pane.agent_detected", "pane.created", "pane.exited"}
-	fmt.Println("\n### 구독 A: pane_id 없이 (10초 대기 — 그 사이 에이전트에 말을 걸어 보세요)")
+	fmt.Println("\n### 구독 A: pane_id 없이 (30초 대기 — 그 사이 에이전트에 말을 걸어 보세요)")
 	if !herdrSubscribe(sock, types, "") && firstPane != "" {
-		fmt.Printf("\n### 구독 B: pane_id=%s 지정 (10초 대기)\n", firstPane)
+		fmt.Println("\n### 구독 B: pane_id 지정 (30초 대기)")
 		herdrSubscribe(sock, types[:1], firstPane)
 	}
 }
@@ -87,7 +89,7 @@ func herdrCall(sock, method string) (any, error) {
 func herdrSubscribe(sock string, types []string, pane string) bool {
 	c, err := net.DialTimeout("unix", sock, 3*time.Second)
 	if err != nil {
-		fmt.Println("실패:", err)
+		fmt.Println("실패: 소켓에 연결하지 못했습니다")
 		return false
 	}
 	defer c.Close()
@@ -100,7 +102,7 @@ func herdrSubscribe(sock string, types []string, pane string) bool {
 		subs = append(subs, s)
 	}
 	req, _ := json.Marshal(map[string]any{"id": "sub", "method": "events.subscribe", "params": map[string]any{"subscriptions": subs}})
-	c.SetDeadline(time.Now().Add(10 * time.Second))
+	c.SetDeadline(time.Now().Add(30 * time.Second))
 	c.Write(append(req, '\n'))
 
 	accepted := false
@@ -110,7 +112,7 @@ func herdrSubscribe(sock string, types []string, pane string) bool {
 		if len(line) > 0 {
 			var v any
 			if json.Unmarshal(line, &v) == nil {
-				fmt.Println(shape(v, 1500))
+				fmt.Println(shape(v, 2000, false))
 				if m, ok := v.(map[string]any); ok && i == 0 && m["error"] == nil {
 					accepted = true
 				}
@@ -165,7 +167,7 @@ func probeFiles(label, root, home string) {
 		}
 	}
 	for _, f := range picked {
-		fmt.Printf("\n### %s (%d bytes, %s 전 수정)\n", strings.Replace(f.path, home, "~", 1), f.size, time.Since(f.mod).Round(time.Second))
+		fmt.Printf("\n### %s (%d bytes, %s 전 수정)\n", maskPath(root, f.path), f.size, time.Since(f.mod).Round(time.Second))
 		probeJSONL(f.path)
 	}
 }
@@ -191,7 +193,7 @@ func probeJSONL(path string) {
 				sig := strings.Join(parts, " ")
 				if !seen[sig] && len(seen) < 30 {
 					seen[sig] = true
-					fmt.Printf("- [%s]\n  %s\n", sig, shape(v, 1500))
+					fmt.Printf("- [%s]\n  %s\n", sig, shape(v, 1800, true))
 				}
 			}
 		}
@@ -237,39 +239,82 @@ func typeSig(v any, path string, depth int, out *[]string) {
 
 // ---- 출력 가리기 ----
 
-func shape(v any, max int) string {
-	b, _ := json.Marshal(redact(v))
+// 구조를 구분하는 데 필요한 키. 이 키의 짧은 값만 그대로 보여주고 나머지 문자열은 길이만 남긴다.
+var keepKeys = map[string]bool{
+	"type": true, "role": true, "subtype": true, "kind": true, "status": true, "state": true,
+	"agent": true, "agent_status": true, "method": true, "source": true, "event": true, "op": true,
+	"stop_reason": true, "phase": true, "format": true, "code": true, "level": true,
+	"name": true, "tool": true, "tool_name": true, "subagent_type": true, "agent_type": true, "hook_event_name": true,
+}
+
+// keepName 이 false 면 name 계열 키도 가린다 (herdr 응답의 name 은 프로젝트명일 수 있다).
+func shape(v any, max int, keepName bool) string {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	enc.Encode(redact("", v, keepName))
+	b := bytes.TrimSpace(buf.Bytes())
 	if len(b) > max {
 		return string(b[:max]) + " …"
 	}
 	return string(b)
 }
 
-func redact(v any) any {
+func redact(key string, v any, keepName bool) any {
 	switch x := v.(type) {
 	case string:
-		if len(x) <= 24 && !strings.ContainsAny(x, "/\\ \n@") {
+		ok := keepKeys[key] && len(x) <= 32 && !strings.ContainsAny(x, "/\\ \n@.")
+		if key == "name" && !keepName {
+			ok = false
+		}
+		if ok {
 			return x
 		}
 		return fmt.Sprintf("<str:%d>", len(x))
 	case []any:
-		out := make([]any, 0, 4)
+		out := make([]any, 0, 3)
 		for i, e := range x {
-			if i >= 3 {
-				out = append(out, fmt.Sprintf("<+%d more>", len(x)-3))
+			if i >= 2 {
+				out = append(out, fmt.Sprintf("<+%d more>", len(x)-2))
 				break
 			}
-			out = append(out, redact(e))
+			out = append(out, redact(key, e, keepName))
 		}
 		return out
 	case map[string]any:
 		out := make(map[string]any, len(x))
 		for k, e := range x {
-			out[k] = redact(e)
+			out[k] = redact(k, e, keepName)
 		}
 		return out
 	}
 	return v
+}
+
+// 경로에서 폴더·파일 이름을 가리고 구조만 남긴다.
+var (
+	idRun    = regexp.MustCompile(`[0-9a-fA-F][0-9a-fA-F-]{7,}`)
+	literals = map[string]bool{
+		"subagents": true, "sessions": true, "brain": true, "logs": true, ".system_generated": true, "conversations": true,
+		"projects": true, "archived_sessions": true, "transcript.jsonl": true, "transcript_full.jsonl": true, "history.jsonl": true,
+	}
+)
+
+func maskPath(root, path string) string {
+	rel, _ := filepath.Rel(root, path)
+	parts := strings.Split(rel, string(filepath.Separator))
+	for i, part := range parts {
+		switch {
+		case literals[part] || strings.Trim(part, "0123456789") == "":
+		case idRun.MatchString(part):
+			parts[i] = idRun.ReplaceAllString(part, "<id>")
+		case i == len(parts)-1:
+			parts[i] = "<name>" + filepath.Ext(part)
+		default:
+			parts[i] = "<dir>"
+		}
+	}
+	return "<root>/" + strings.Join(parts, "/")
 }
 
 func findString(v any, key string) string {
