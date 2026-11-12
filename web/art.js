@@ -1,10 +1,12 @@
 // 도트 그림. 모든 스프라이트는 문자 격자로 평면 색만 적고,
 // bake() 가 외곽선과 가장자리 명암을 자동으로 입힌다.
+// round 를 켜면 왼쪽 위에서 빛을 받는 둥근 덩어리처럼 칠하고, sideOf() 로 만든 어두운 옆면을
+// 오른쪽에 살짝 어긋나게 깔아 두께를 준다 (건물·가구의 옆면이 보이는 방향과 같다).
 
 const hex = (c) => [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16));
 const OUTLINE = [28, 22, 36];
 
-export function bake(rows, pal, { mirror = false } = {}) {
+export function bake(rows, pal, { mirror = false, round = false } = {}) {
   if (mirror) rows = rows.map((r) => r + [...r].reverse().join(''));
   const sw = Math.max(...rows.map((r) => r.length)), sh = rows.length;
   const w = sw + 2, h = sh + 2;
@@ -12,12 +14,21 @@ export function bake(rows, pal, { mirror = false } = {}) {
   c.width = w; c.height = h;
   const g = c.getContext('2d'), img = g.createImageData(w, h), d = img.data;
   const on = (x, y) => y >= 0 && y < sh && x >= 0 && x < rows[y].length && pal[rows[y][x]] !== undefined;
-  for (let y = 0; y < sh; y++) for (let x = 0; x < rows[y].length; x++) {
+  for (let y = 0; y < sh; y++) {
+   let fx = 0, lx = rows[y].length - 1;
+   while (fx < lx && !on(fx, y)) fx++;
+   while (lx > fx && !on(lx, y)) lx--;
+   for (let x = 0; x < rows[y].length; x++) {
     const col = pal[rows[y][x]];
     if (!col) continue;
-    const k = (!on(x + 1, y) || !on(x, y + 1)) ? 0.78 : (!on(x - 1, y) || !on(x, y - 1)) ? 1.14 : 1;
+    let k = (!on(x + 1, y) || !on(x, y + 1)) ? 0.78 : (!on(x - 1, y) || !on(x, y - 1)) ? 1.14 : 1;
+    if (round) { // 가로로는 원통처럼, 세로로는 아래쪽이 어둡게
+      const t = (x - fx) / Math.max(1, lx - fx);
+      k *= (t > 0.84 ? 0.74 : t > 0.66 ? 0.87 : t < 0.2 ? 1.08 : 1) * (y > sh * 0.72 ? 0.92 : y < sh * 0.25 ? 1.04 : 1);
+    }
     const i = ((y + 1) * w + x + 1) * 4, rgb = hex(col);
     d[i] = Math.min(255, rgb[0] * k); d[i + 1] = Math.min(255, rgb[1] * k); d[i + 2] = Math.min(255, rgb[2] * k); d[i + 3] = 255;
+   }
   }
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
     if (on(x - 1, y - 1)) continue;
@@ -27,6 +38,21 @@ export function bake(rows, pal, { mirror = false } = {}) {
     }
   }
   g.putImageData(img, 0, 0);
+  return c;
+}
+
+// 스프라이트의 어두운 복사본. 원본 뒤에 오른쪽으로 어긋나게 그려 옆면으로 쓴다.
+const sides = new WeakMap();
+export function sideOf(img) {
+  if (sides.has(img)) return sides.get(img);
+  const c = document.createElement('canvas');
+  c.width = img.width; c.height = img.height;
+  const g = c.getContext('2d');
+  g.drawImage(img, 0, 0);
+  const im = g.getImageData(0, 0, c.width, c.height), d = im.data;
+  for (let i = 0; i < d.length; i += 4) { d[i] *= 0.5; d[i + 1] *= 0.48; d[i + 2] *= 0.58; }
+  g.putImageData(im, 0, 0);
+  sides.set(img, c);
   return c;
 }
 
@@ -92,6 +118,7 @@ export function hero({ job, color, dark, leader, seed }) {
   };
   pal.h = pal.H;
   let body = BODY.map((r) => r + [...r].reverse().join(''));
+  body[2] = '...HHhSSSSSSH...'; body[3] = '...SSSeSSSSeS...'; // 얼굴을 살짝 오른쪽으로 돌린다
   if (!leader) body = body.filter((_, i) => i !== 7); // 길드원은 한 줄 짧다
   const hats = [...(HATS[J.hat] || [])];
   if (leader && job === 'knight') hats.length = 0, hats.push(...HATS.crown);
@@ -105,7 +132,7 @@ export function hero({ job, color, dark, leader, seed }) {
       for (let y = top; y < rows.length - 1; y++) for (let x = 1; x < 15; x++) if (rows[y][x] === '.') rows[y][x] = 'K';
       rows[HEADROOM + 6][2] = rows[HEADROOM + 6][13] = 'y';
     }
-    frames[name] = bake(rows.map((r) => r.join('')), pal);
+    frames[name] = bake(rows.map((r) => r.join('')), pal, { round: true });
   }
   const out = { ...frames, w: 18, h: frames.stand.height, mouthY: HEADROOM + 6, job: J };
   heroCache.set(key, out);
@@ -125,7 +152,7 @@ export const WEAPONS = {
 
 // ---------- 몬스터 ----------
 
-const M = (rows, pal, name, opt = {}) => ({ name, img: bake(rows, pal, { mirror: true }), flash: bake(rows, Object.fromEntries(Object.keys(pal).map((k) => [k, '#ffffff'])), { mirror: true }), ...opt });
+const M = (rows, pal, name, opt = {}) => ({ name, img: bake(rows, pal, { mirror: true, round: true }), flash: bake(rows, Object.fromEntries(Object.keys(pal).map((k) => [k, '#ffffff'])), { mirror: true }), ...opt });
 
 export const MONSTERS = {
   slime: M([
@@ -172,7 +199,7 @@ export function monsterFor(text, seed) {
 export const TREE = bake([
   '....ttt', '..ttttt', '.tttTtt', '.ttTttt', 'ttttttt', 'tttTttt', 'ttttttT', '.tttttt', '.tTtttt', '..ttttt',
   '....ttt', '......b', '......b', '......b', '.....bb',
-], { t: '#3f9a4a', T: '#2f7a3c', b: '#6a4a30' }, { mirror: true });
+], { t: '#3f9a4a', T: '#2f7a3c', b: '#6a4a30' }, { mirror: true, round: true });
 
 // ---------- 비스듬한 측면 시점 ----------
 // 가로는 그대로 두고 깊이(v)만 왼쪽 아래로 기울인다. 그래서 왼쪽 옆벽과 가구의 오른쪽 옆면이 보인다.

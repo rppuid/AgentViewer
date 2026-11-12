@@ -1,5 +1,5 @@
 // 에이전트 마을 뷰어. 프레임워크·엔진 없이 Canvas 2D 한 장으로 그린다.
-import { bake, hero, WEAPONS, MONSTERS, monsterFor, TREE, drawOffice, drawDesk, oblique, SK, SY, DEPTH, WALL_H } from './art.js';
+import { bake, hero, WEAPONS, MONSTERS, monsterFor, TREE, sideOf, drawOffice, drawDesk, oblique, SK, SY, DEPTH, WALL_H } from './art.js';
 
 const GUILDS = {
   claude: { name: 'Claude 길드', color: '#e0825c', dark: '#93492f', job: 'knight' },
@@ -160,7 +160,7 @@ function renderBg() {
 
 function buildProps() {
   props = [];
-  for (const [x, y] of L.trees) props.push({ y, draw: () => ctx.drawImage(TREE, x - 8, y - 16), shadow: [x, y, 9] });
+  for (const [x, y] of L.trees) props.push({ y, draw: () => { ctx.drawImage(sideOf(TREE), x - 6, y - 16); ctx.drawImage(TREE, x - 8, y - 16); }, shadow: [x, y, 9] });
   for (const id of ORDER) for (const d of L.guilds[id].desks) props.push({ y: d.y + 10, draw: () => drawDesk(ctx, d.x, d.y) });
 }
 
@@ -759,6 +759,7 @@ function drawActor(a) {
   ctx.translate(Math.round(x), Math.round(y));
   ctx.scale(a.face, 1);
   const top = -A.h + 2 + bob;
+  ctx.drawImage(sideOf(frame), -9 + 2 * a.face, top); // 옆면은 항상 화면 오른쪽
   ctx.drawImage(frame, -9, top);
   if (a.talkUntil > now && Math.floor(now * 8) % 2) { ctx.fillStyle = '#7a3028'; ctx.fillRect(-1, top + A.mouthY, 2, 1); }
   if (!a.atDesk) {
@@ -787,7 +788,9 @@ function drawMonster(m) {
   ctx.globalAlpha = 1 - dying;
   const hit = m.hitUntil > now && m.hitUntil - now < 0.16;
   const jx = hit ? 2 : 0;
-  ctx.drawImage(hit || (m.dying && Math.floor(now * 20) % 2) ? A.flash : A.img, Math.round(m.x - w / 2 + jx), Math.round(m.y - h - lift + 1), Math.round(w), Math.round(h));
+  const flashing = hit || (m.dying && Math.floor(now * 20) % 2);
+  if (!flashing) ctx.drawImage(sideOf(A.img), Math.round(m.x - w / 2 + jx + 2.5 * sc), Math.round(m.y - h - lift + 1), Math.round(w), Math.round(h));
+  ctx.drawImage(flashing ? A.flash : A.img, Math.round(m.x - w / 2 + jx), Math.round(m.y - h - lift + 1), Math.round(w), Math.round(h));
   if (m.stage === 2 && !m.dying) ctx.drawImage(CROWN, Math.round(m.x - 6), Math.round(m.y - h - lift - 5));
   ctx.globalAlpha = 1;
 }
