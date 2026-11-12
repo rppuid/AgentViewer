@@ -39,6 +39,26 @@ const BANTER = [
   ['레벨 좀 올랐어?', '아직 멀었어. 너는?'],
 ];
 const MUSING = ['의뢰 없나…', '졸리다…', '불멍 좋네.', '다음엔 뭘 잡지.', '어깨 뻐근해.'];
+// 길드원끼리는 서로 존대한다
+const CREW_BANTER = [
+  ['오늘 길드장님 기분 좋아 보이시죠?', '포상도 주셨잖아요!'],
+  ['아까 그 몬스터 무섭지 않았어요?', '다 같이라 괜찮았어요.'],
+  ['다음 임무도 같이 가요.', '좋아요, 불러 주세요!'],
+  ['여기 볕이 참 좋네요.', '쉬는 게 제일이에요.'],
+  ['보고 잘하는 요령이 있어요?', '결론부터 말하면 돼요.'],
+  ['장비 새로 맞추셨어요?', '네, 지난 포상으로요.'],
+  ['버그벌레는 어디서 나오는 걸까요?', '급하게 짠 코드에서요…'],
+  ['간식 좀 드실래요?', '오, 고맙습니다!'],
+];
+// 길드장이 쉬는 길드원에게 건네는 말
+const MENTOR = [
+  ['{n}, 요즘 잘하더라.', '감사합니다, 길드장님!'],
+  ['힘든 건 없어?', '괜찮습니다. 더 맡겨 주세요!'],
+  ['간식 먹고 푹 쉬어.', '잘 먹겠습니다!'],
+  ['{n}, 다음 의뢰도 부탁해.', '언제든 불러 주십시오!'],
+  ['아까 보고 깔끔하더라.', '더 다듬어 보겠습니다.'],
+];
+const CREW_MUSING = ['오늘도 무사히 끝났다.', '다음 임무는 언제지…', '조금만 쉬자.', '칭찬받았다. 헤헤.', '장비 손질해야지.'];
 
 const $ = (id) => document.getElementById(id);
 const stage = $('stage'), cv = $('world'), ctx = cv.getContext('2d'), logEl = $('log'), hud = $('hud');
@@ -106,6 +126,10 @@ function makeLayout(W, H, portrait, cover) {
   }
   if (!l.slots.length) l.slots.push({ x: Math.round(W * 0.7), y: Math.min(H - 10, l.fieldY + 46) });
   l.rest = Array.from({ length: 8 }, (_, k) => ({ x: l.fire.x + Math.cos(k * 0.785 + 0.4) * 22, y: l.fire.y + Math.sin(k * 0.785 + 0.4) * 8 + 2 }));
+  for (let k = 0; k < 14; k++) { // 광장 곳곳의 쉼터. 둘씩 마주 서게 붙여 둔다
+    const x = W * (Math.floor(k / 2) + 0.5) / 7 + (k % 2 ? 9 : -9), y = l.plazaY + 9 + (Math.floor(k / 2) % 2) * 15;
+    if (Math.abs(x - l.fire.x) > 36) l.rest.push({ x, y });
+  }
   l.trees = [[5, l.plazaY + 22], [W - 5, l.plazaY + 24], [l.fire.x - 62, l.plazaY + 30], [l.fire.x + 62, l.plazaY + 30]];
   for (let y = l.fieldY + 26, k = 0; y < H + 8; y += 44, k++) l.trees.push([4 + (k % 2) * 4, y], [W - 5 - (k % 2) * 3, y + 9]);
   return l;
@@ -199,7 +223,10 @@ const slotPos = (i) => ({ ...L.slots[i % L.slots.length] });
 function rest(a, sec) {
   const used = new Set();
   for (const b of actors.values()) if (b !== a && b.mode === 'rest') used.add(b.spot);
-  a.spot = [0, 4, 2, 6, 1, 5, 3, 7].find((k) => !used.has(k)) ?? 0;
+  // 길드장은 모닥불 둘레부터, 길드원은 광장 쉼터부터 채운다
+  const fire = [0, 4, 2, 6, 1, 5, 3, 7], spots = L.rest.map((_, k) => k).slice(8);
+  const order = a.leader ? [...fire, ...spots] : [...spots.slice(a.homeSeed % (spots.length || 1)), ...spots, ...fire];
+  a.spot = order.find((k) => !used.has(k)) ?? 0;
   a.mode = 'rest'; a.modeUntil = now + sec;
 }
 const after = (sec, fn) => timers.push({ at: now + sec, fn });
@@ -217,14 +244,14 @@ function register(e) {
 
 function partyOf(session) {
   const out = [];
-  for (const a of actors.values()) if (a.session === session && !a.leaving) out.push(a);
+  for (const a of actors.values()) if (a.session === session && !a.leaving && !a.linger) out.push(a);
   return out;
 }
 
 function targetOf(a) {
   const g = L.guilds[a.guild] || L.guilds.claude;
   if (a.leaving) return [g.door.x, g.door.y - 6];
-  const m = monsters.get(a.session);
+  const m = a.linger ? null : monsters.get(a.session);
   if (m && !m.dying) {
     if (a.status === 'blocked' && a.leader) return [a.x, a.y];
     const party = partyOf(a.session), k = party.indexOf(a);
@@ -233,7 +260,8 @@ function targetOf(a) {
     const ang = Math.PI + ((k % 3) - (inRing - 1) / 2) * 0.95, r = 28 + m.stage * 8 + ring * 18;
     return [m.x + Math.cos(ang) * r, m.y + Math.sin(ang) * 21 + 2];
   }
-  if (a.mode === 'rest') return [L.rest[a.spot % 8].x, L.rest[a.spot % 8].y];
+  if (a.mode === 'rest') { const r = L.rest[a.spot % L.rest.length]; return [r.x, r.y]; }
+  if (!a.leader) return [a.x, a.y]; // 할 일이 정해지기 전의 길드원은 제자리
   const d = g.desks[a.homeIdx];
   if (d) return [d.x, d.y];
   const p = g.at(10 + (a.homeIdx % 5) * 11, 46);
@@ -255,6 +283,7 @@ function addActor(s) {
     homeIdx, x: g.door.x, y: g.door.y - 4, face: 1, seed: Math.random() * 9,
     mode: 'desk', modeUntil: now + 10 + Math.random() * 30, spot: hash(s.actor) % 8,
     bubble: null, talkUntil: 0, swingUntil: 0, hurtUntil: 0, cheerUntil: 0, leaving: false, moving: false,
+    homeSeed: hash(s.actor) % 97, linger: false, hits: 0, fails: 0, medals: 0, chatX: 0, chatUntil: 0,
   };
   actors.set(a.id, a);
   return a;
@@ -346,7 +375,7 @@ function onEvent(e, live) {
       if (!a) addActor(e);
       break;
     case 'hire': {
-      if (a) break;
+      if (a) { a.linger = a.leaving = false; a.mode = 'desk'; a.hits = a.fails = 0; break; } // 쉬던 길드원이 다시 불려 옴
       const n = addActor(e);
       burst(n.x, n.y - 8, ['#ffffff', guildOf(e.guild).color], 12, 30);
       say(n, '합류했습니다!');
@@ -354,13 +383,14 @@ function onEvent(e, live) {
       break;
     }
     case 'dismiss':
-      if (a) { say(a, '임무를 마쳤습니다.', 1.6); after(1.2, () => { a.leaving = true; }); }
+      if (a && !a.linger) { say(a, '임무를 마쳤습니다.', 1.6); after(1.3, () => praise(lead, a)); after(4.2, () => linger(a)); }
       break;
     case 'leave':
       for (const b of actors.values()) if (b.session === e.session) b.leaving = true;
       monsters.delete(e.session);
       break;
     case 'quest': {
+      if (m && !m.dying) { m.text = e.text || m.text; break; } // 진행 중인 의뢰의 내용만 갱신
       const nm = addMonster(e.session, e.text || '의뢰');
       burst(nm.x, nm.y - 8, ['#3a2a4a', '#8a6ac8', '#ffffff'], 18, 34);
       SFX.spawn();
@@ -378,11 +408,12 @@ function onEvent(e, live) {
           floatText(m.x, m.y - 34, st === 2 ? '보스 출현!' : '정예로 변했다!', '#ff6a5a', 7, 1.8);
           if (st === 2) { shakeUntil = now + 0.6; SFX.boss(); toast(`보스 출현 — ${m.text}`); }
         }
-        if (a) { attack(a, m, verbOf(e.tool)[3]); say(a, cut(a.leader ? verbOf(e.tool)[2] : verbOf(e.tool)[1], 12), 1.3); }
+        if (a) { a.hits++; attack(a, m, verbOf(e.tool)[3]); say(a, cut(a.leader ? verbOf(e.tool)[2] : verbOf(e.tool)[1], 12), 1.3); }
       }
       break;
     case 'result':
       if (e.ok === false && a) {
+        a.fails++;
         a.hurtUntil = now + 0.7;
         burst(a.x, a.y - 8, ['#ff6b6b', '#ffb3b3'], 10, 28);
         say(a, a.leader ? '윽!' : '죄송합니다!', 1.2);
@@ -415,6 +446,42 @@ function alertBlocked(a) {
   } catch { /* 알림 불가 환경 */ }
 }
 
+const given = (a) => a.name.split(' ').pop(); // '정찰병 가람' → '가람'
+const tell = (a, text) => log({ actor: a.id, session: a.session, guild: a.guild, t: Date.now() }, '', text);
+
+// 길드장이 일을 마친 길드원을 격려한다. 실수 없이 해냈으면 포상도 준다.
+function praise(lead, a) {
+  if (!lead || !actors.has(a.id) || a.leaving) return;
+  lead.face = a.x >= lead.x ? 1 : -1;
+  if (a.hits > 0 && a.fails === 0) {
+    const line = pick([`${given(a)}, 잘했어! 포상이다.`, `역시 ${given(a)}! 훌륭해.`, `${given(a)}, 완벽했어. 받아 둬.`]);
+    say(lead, line, 2.6); tell(lead, line);
+    award(lead, a, '★ 포상');
+    after(1.3, () => { say(a, pick(['감사합니다, 길드장님!', '영광입니다!', '더 열심히 하겠습니다!']), 2); a.cheerUntil = now + 1.2; });
+  } else {
+    const line = pick([`${given(a)}, 고생했어.`, '수고했어. 다음엔 더 잘할 거야.', `${given(a)}, 애썼다. 좀 쉬어.`]);
+    say(lead, line, 2.4); tell(lead, line);
+    after(1.3, () => say(a, pick(['더 노력하겠습니다.', '다음엔 꼭 해내겠습니다.', '감사합니다.']), 2));
+  }
+}
+
+function award(from, a, label) {
+  a.medals++;
+  push({ type: 'orb', x: from.x, y: from.y - 14, tx: a.x, ty: a.y - 12, t0: now + 0.4, dur: 0.5, color: '#ffd84a' });
+  burst(a.x, a.y - 12, ['#ffd84a', '#fff3b0', '#ffffff'], 16, 34, 0.9);
+  floatText(a.x, a.y - a.art.h - 6, label, '#ffd84a', 6, 1.8, 0.9);
+  after(0.9, () => SFX.level());
+}
+
+// 일을 마친 길드원은 바로 떠나지 않고 광장에서 한동안 쉰다.
+function linger(a) {
+  if (!actors.has(a.id) || a.leaving || a.linger) return;
+  a.linger = true; a.status = 'idle';
+  rest(a, 70 + Math.random() * 90);
+  const resting = [...actors.values()].filter((b) => b.linger && !b.leaving).sort((p, q) => p.modeUntil - q.modeUntil);
+  for (const old of resting.slice(0, Math.max(0, resting.length - 10))) old.leaving = true; // 너무 붐비면 먼저 쉰 순서로 귀가
+}
+
 function victory(m, lead) {
   m.dying = now;
   const y = m.y - 10, exp = [1, 2, 4][m.stage];
@@ -428,6 +495,18 @@ function victory(m, lead) {
   SFX.win();
 
   const party = partyOf(m.session);
+  const crew = [...actors.values()].filter((b) => b.session === m.session && !b.leader && !b.leaving && b.hits > 0);
+  if (lead && crew.length) { // 함께한 길드원이 있으면 치하하고 가장 활약한 이를 뽑는다
+    const mvp = crew.reduce((p, q) => (q.hits - q.fails > p.hits - p.fails ? q : p));
+    after(1.6, () => { say(lead, '모두 고생했어!', 2); tell(lead, '모두 고생했어!'); });
+    after(3.8, () => {
+      if (!actors.has(mvp.id)) return;
+      const line = `이번 MVP는 ${given(mvp)}!`;
+      say(lead, line, 2.6); tell(lead, line);
+      award(lead, mvp, 'MVP');
+      after(1.4, () => say(mvp, '감사합니다!', 2));
+    });
+  }
   party.forEach((b, i) => {
     b.cheerUntil = now + 2.6;
     after(0.3 + i * 0.35, () => say(b, b.leader ? pick(['해치웠다!', '이겼다!', '좋았어!']) : pick(['해냈습니다!', '성공입니다!', '수고하셨습니다!']), 2));
@@ -562,7 +641,8 @@ function update(dt) {
   for (let i = timers.length - 1; i >= 0; i--) if (now >= timers[i].at) timers.splice(i, 1)[0].fn();
 
   for (const a of actors.values()) {
-    const fighting = monsters.has(a.session) && !monsters.get(a.session).dying;
+    const fighting = !a.linger && monsters.has(a.session) && !monsters.get(a.session).dying;
+    if (a.linger && !a.leaving && now > a.modeUntil) { a.leaving = true; if (!a.bubble) say(a, '먼저 들어가 보겠습니다.', 1.6); }
     if (a.leader && !fighting && now > a.modeUntil) {
       if (a.mode === 'desk') rest(a, 16 + Math.random() * 14);
       else { a.mode = 'desk'; a.modeUntil = now + 25 + Math.random() * 40; }
@@ -577,19 +657,28 @@ function update(dt) {
     } else if (a.leaving) { actors.delete(a.id); stat(); }
     else if (fighting) a.face = monsters.get(a.session).x >= a.x ? 1 : -1;
     a.atDesk = a.leader && !fighting && !a.moving && a.mode === 'desk' && a.homeIdx < (L.guilds[a.guild] || L.guilds.claude).desks.length;
-    a.resting = a.leader && !fighting && !a.moving && a.mode === 'rest';
-    if (a.resting) a.face = L.fire.x >= a.x ? 1 : -1;
+    a.resting = !fighting && !a.moving && !a.leaving && a.mode === 'rest' && (a.leader || a.linger);
+    if (a.resting) a.face = (a.chatUntil > now ? a.chatX : L.fire.x) >= a.x ? 1 : -1;
     if (a.bubble && now > a.bubble.until) a.bubble = null;
   }
 
-  if (now > nextBanter) { // 쉬는 길드장들의 잡담
-    nextBanter = now + 6 + Math.random() * 6;
+  if (now > nextBanter) { // 쉬는 이들끼리의 잡담
     const idle = [...actors.values()].filter((a) => a.resting && !a.bubble);
-    if (idle.length >= 2) {
-      const [p, q] = idle.sort(() => Math.random() - 0.5), [l1, l2] = pick(BANTER);
-      say(p, l1, 2.6);
-      after(2.4, () => { if (q.resting) say(q, l2, 2.6); });
-    } else if (idle.length === 1 && Math.random() < 0.5) say(idle[0], pick(MUSING), 2.4);
+    nextBanter = now + (idle.length > 3 ? 3 : 5.5) + Math.random() * 4;
+    const p = idle.length ? pick(idle) : null;
+    // 말 상대는 가까이 있는 사람
+    const q = p && idle.filter((b) => b !== p).sort((u, v) => Math.hypot(u.x - p.x, u.y - p.y) - Math.hypot(v.x - p.x, v.y - p.y))[0];
+    if (q && Math.hypot(q.x - p.x, q.y - p.y) < 70) {
+      const [first, second] = p.leader || !q.leader ? [p, q] : [q, p]; // 길드장이 끼면 길드장이 먼저 말을 건다
+      const pool = first.leader ? (second.leader ? BANTER : MENTOR) : CREW_BANTER;
+      const [l1, l2] = pick(pool).map((t) => t.replace('{n}', given(second)));
+      first.chatX = second.x; second.chatX = first.x; first.chatUntil = second.chatUntil = now + 5.5;
+      say(first, l1, 2.6);
+      after(2.4, () => { if (second.resting) say(second, l2, 2.6); });
+    } else if (p && Math.random() < 0.6) {
+      if (Math.random() < 0.3) floatText(p.x + 4, p.y - p.art.h, 'Zzz', '#cfe0ff', 4.5, 2.2);
+      else say(p, pick(p.leader ? MUSING : CREW_MUSING), 2.4);
+    }
   }
 
   for (const m of monsters.values()) if (m.dying && now - m.dying > 0.6) { monsters.delete(m.session); stat(); }
@@ -715,7 +804,10 @@ function draw() {
   }
   for (const a of actors.values()) {
     if (a.leader) text(`Lv.${levelOf(`h:${a.guild}/${a.name}`)} ${cut(a.name, 12)}`, a.x, a.y + 6, '#ffe9a8', 4.2);
-    else text(a.name, a.x, a.y + 5.5, '#fff', 3.6, false);
+    else {
+      text(a.name, a.x, a.y + 5.5, a.linger ? '#d8e4ff' : '#fff', 3.6, false);
+      if (a.medals) text('★'.repeat(Math.min(3, a.medals)), a.x, a.y - a.art.h + 1, '#ffd84a', 4);
+    }
   }
   for (const e of fx) if (e.type === 'text' && now >= e.t0) {
     const k = (now - e.t0) / e.dur;

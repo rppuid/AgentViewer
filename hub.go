@@ -110,7 +110,10 @@ func (h *Hub) apply(e Event) {
 		h.remove(func(a *ActorState) bool { return a.Session == e.Session })
 	case "quest":
 		if a := h.actors[e.Session]; a != nil {
-			a.Quest, a.QuestT, a.Hits = e.Text, e.T, 0
+			if a.Quest == "" { // 진행 중인 의뢰에 다시 오면 내용만 바뀐다
+				a.QuestT, a.Hits = e.T, 0
+			}
+			a.Quest = e.Text
 		}
 	case "tool":
 		if a := h.actors[e.Session]; a != nil {

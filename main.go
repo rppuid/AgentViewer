@@ -5,7 +5,6 @@ import (
 	"context"
 	"embed"
 	"flag"
-	"fmt"
 	"io/fs"
 	"log"
 	"net/http"
@@ -24,6 +23,7 @@ func main() {
 
 	addr := flag.String("addr", "127.0.0.1:7318", "listen address (tailscale serve로 내보낼 로컬 주소)")
 	mock := flag.Bool("mock", false, "실제 에이전트 대신 모의 이벤트를 재생")
+	sock := flag.String("herdr", "", "herdr 소켓 경로 (기본: ~/.config/herdr/herdr.sock)")
 	flag.Parse()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -33,7 +33,7 @@ func main() {
 	if *mock {
 		go runMock(ctx, hub)
 	} else {
-		fmt.Fprintln(os.Stderr, "실제 수집기는 아직 연결되지 않았습니다. -mock 으로 실행하거나 `agentviewer probe` 결과를 먼저 확인하세요.")
+		go runCollector(ctx, hub, *sock)
 	}
 
 	static, err := fs.Sub(webFS, "web")

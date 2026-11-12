@@ -107,19 +107,36 @@ const SKINS = ['#f6cfa4', '#eab98a', '#c98f62'];
 const heroCache = new Map();
 
 export function hero({ job, color, dark, leader, seed }) {
-  const key = [job, color, leader, seed % 21].join();
+  const key = [job, color, leader, leader ? seed % 21 : seed % 9973].join();
+  if (heroCache.size > 240) heroCache.clear();
   if (heroCache.has(key)) return heroCache.get(key);
   const J = JOBS[job] || JOBS.knight;
   const pal = {
     H: J.hair || HAIRS[seed % HAIRS.length], h: '#00000000', S: SKINS[seed % SKINS.length], e: '#20202c',
     C: color, c: dark, B: leader ? '#ffd84a' : '#5a4636', P: leader ? '#3a3550' : '#5b5568', F: '#3a2c24',
     K: job === 'scholar' && !leader ? '#2e3c78' : dark, y: '#ffd84a', W: '#5a3fa8', r: '#e04848', R: '#d83a3a',
-    N: '#7a4a2a', O: '#7fe6ff',
+    N: '#7a4a2a', O: '#7fe6ff', k: '#20202c',
   };
   pal.h = pal.H;
   let body = BODY.map((r) => r + [...r].reverse().join(''));
   body[2] = '...HHhSSSSSSH...'; body[3] = '...SSSeSSSSeS...'; // 얼굴을 살짝 오른쪽으로 돌린다
-  if (!leader) body = body.filter((_, i) => i !== 7); // 길드원은 한 줄 짧다
+  if (!leader) { // 길드원마다 다른 생김새: 옷 색조, 바지, 머리 모양, 소품
+    const v = seed >>> 3, put = (r, x, ch) => { body[r] = body[r].slice(0, x) + ch + body[r].slice(x + 1); };
+    const tone = [1, 0.84, 1.14, 0.93, 1.06][v % 5];
+    pal.C = shade(color, tone); pal.c = shade(dark, tone);
+    pal.P = ['#5b5568', '#6a5238', '#3f5a4a', '#4a4f78', '#7a4040'][(v >>> 3) % 5];
+    pal.Q = ['#e04848', '#ffd84a', '#6fd3ff', '#ffffff', '#b58cff'][(v >>> 6) % 5];
+    const hair = (v >>> 9) % 4, extra = (v >>> 11) % 6;
+    if (hair === 1) for (const r of [3, 4, 5]) { put(r, 3, 'H'); put(r, 12, 'H'); }        // 긴 머리
+    if (hair === 2) { put(0, 3, 'H'); put(0, 12, 'H'); put(1, 2, 'H'); put(1, 13, 'H'); }    // 뻗친 머리
+    if (hair === 3) for (const r of [2, 3, 4, 5, 6]) put(r, 2, 'H');                          // 묶은 머리
+    if (extra === 1) for (let x = 5; x <= 10; x++) put(6, x, 'Q');                            // 목도리
+    if (extra === 2) for (const x of [5, 7, 8, 9, 10, 12]) put(3, x, 'k');                    // 안경
+    if (extra === 3) { for (let x = 5; x <= 10; x++) put(5, x, 'H'); put(4, 4, 'H'); put(4, 11, 'H'); } // 수염
+    if (extra === 4) for (const r of [7, 8, 9]) { put(r, 1, 'N'); put(r, 0, 'N'); }           // 배낭
+    if (extra === 5) { put(8, 7, 'Q'); put(8, 8, 'Q'); put(9, 7, 'Q'); }                     // 가슴 휘장
+    body = body.filter((_, i) => i !== 7); // 길드원은 한 줄 짧다
+  }
   const hats = [...(HATS[J.hat] || [])];
   if (leader && job === 'knight') hats.length = 0, hats.push(...HATS.crown);
 

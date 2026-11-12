@@ -14,29 +14,34 @@ go build -o agentviewer .
 ```
 
 ```bash
-./agentviewer -mock
+./agentviewer
 ```
 
-`http://127.0.0.1:7318` 에서 열린다. 외부에서는 Tailscale 로 내보낸다.
+`http://127.0.0.1:7318` 에서 열린다. herdr 에 떠 있는 Claude · Codex · Antigravity 패널을 읽어 보여준다.
+herdr 없이 화면만 보려면 `./agentviewer -mock`, 외부에서는 Tailscale 로 내보낸다.
 
 ```bash
 tailscale serve --bg --https=7318 http://127.0.0.1:7318
 ```
 
-## 집 PC 데이터 확인
+## 데이터 출처
 
-실제 수집기를 붙이기 전에 herdr 소켓과 세션 기록 파일의 실제 형태를 한 번 확인한다.
-값은 가리고 구조만 출력하지만, 공유하기 전에 한 번 훑어볼 것.
+| 출처 | 얻는 것 |
+|---|---|
+| herdr 소켓 `agent.list` (2초마다) | 패널별 에이전트 종류와 상태. 상태 전환이 의뢰 시작·완료를 정한다 |
+| `~/.claude/projects/<폴더>/<세션>.jsonl` 과 `subagents/` | 요청 내용, 도구 호출, 대화, 서브에이전트 |
+| `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` | 요청 내용, 명령 실행, 대화, 검토 스레드 |
+| `~/.gemini/antigravity-cli/brain/<id>/.system_generated/logs/transcript_full.jsonl` | 요청 내용, 도구 호출, 서브에이전트 |
 
-```bash
-./agentviewer probe > probe.txt
-```
+뷰어가 접속해 있지 않으면 파일은 읽지 않는다. 형태가 바뀌었을 때는 `./agentviewer probe > probe.txt` 로 확인한다.
 
 ## 구조
 
 | 파일 | 역할 |
 |---|---|
 | `hub.go` | 공통 이벤트 규격, 현재 상태 스냅샷, SSE 스트림 (`/events`) |
+| `collector.go` | herdr 상태 확인, 기록 파일 찾기와 따라 읽기 |
+| `parse.go` | Claude · Codex · Antigravity 기록 한 줄을 이벤트로 해석 |
 | `mock.go` | 모의 이벤트 재생 (`-mock`). 뷰어가 없으면 멈춘다 |
 | `probe.go` | 집 PC 데이터 형태 확인 (`probe`) |
 | `web/` | 뷰어. 빌드 단계 없는 순수 JS + Canvas 2D, 실행 파일에 내장 |
@@ -44,6 +49,6 @@ tailscale serve --bg --https=7318 http://127.0.0.1:7318
 ## 진행 상황
 
 - [x] 공통 이벤트 규격, 모의 재생, 마을 뷰어
-- [ ] herdr 소켓 연동 (패널 상태)
-- [ ] Claude / Codex / Antigravity 세션 파일 추적
+- [x] herdr 소켓 연동 (패널 상태)
+- [x] Claude / Codex / Antigravity 세션 파일 추적
 - [ ] 클라우드 세션 연동
